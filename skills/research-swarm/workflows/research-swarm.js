@@ -44,7 +44,9 @@ const closed = input.closed || []; // routes already measured and closed
 const barred = input.barred || []; // routes forbidden by project rule
 const known = input.known || []; // numbers/state already established
 const width = input.width === 5 ? 5 : 7;
-const maxRounds = input.maxRounds || 3;
+const maxRounds = input.maxRounds === undefined ? 3 : input.maxRounds;
+if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 3)
+  throw new Error("maxRounds must be an integer from 1 to 3");
 const ROUND_COST = 120000; // rough output-token cost of one extra hypothesis round
 
 // Cascade: which layer of the drill-down this run is, and what the layers above found.
@@ -721,6 +723,7 @@ function settle(r) {
 
 const tested = [];
 let round = 1;
+let roundsRun = 0;
 let hypotheses = synth.hypotheses;
 
 // Agent budget: lenses + synthesis are already spent, one seat is reserved for the
@@ -769,6 +772,7 @@ while (round <= maxRounds) {
     `Round ${round}: testing ${hypotheses.length} hypotheses (${hypotheses.filter((h) => h.testable_in_code).length} code experiments)`,
   );
 
+  roundsRun++;
   const rawTests = await parallel(hypotheses.map((h) => () => testOne(h)));
   const results = hypotheses.map((h, index) => settle(rawTests[index] || {
     hypothesis: h, mode: h.testable_in_code ? "experiment" : "refutation",
@@ -985,6 +989,6 @@ return {
     downgraded_to_likely: downgraded,
     closed_route_claims_dropped: rejected.length,
     closed_route_claims_reopened: revived.length,
-    rounds_run: round,
+    rounds_run: roundsRun,
   },
 };

@@ -45,7 +45,7 @@ async function fixture(o={}) {
   return values;
  };
  try {
-  const result=await run({question:'PRIVATE_QUESTION',width:o.width||5,ceiling:o.ceiling??14,priorLayers:o.priorLayers||[]},agent,parallel,()=>{},s=>logs.push(s),{total:o.expanded?999999:0,remaining:()=>o.expanded?999999:0});
+  const result=await run({question:'PRIVATE_QUESTION',width:o.width||5,ceiling:o.ceiling??14,maxRounds:o.maxRounds,priorLayers:o.priorLayers||[]},agent,parallel,()=>{},s=>logs.push(s),{total:o.expanded?999999:0,remaining:()=>o.expanded?999999:0});
   assert.ok(logs.every(s=>!s.includes('PRIVATE_')),'private progress log');
   return {result,calls,prompts,logs};
  } catch(error) {error.calls=calls;throw error;}
@@ -64,5 +64,12 @@ async function fixture(o={}) {
  f=await fixture({code:true,falseyTestTask:true});assert.equal(f.result.hypotheses_tested[0].verdict,'undetermined');assert.equal(f.result.hypotheses_tested[0].statement,'PRIVATE_HYPOTHESIS');
  f=await fixture({priorLayers:[{layer:1,question:'PREVIOUS_LAYER_ONLY',verdictSummary:'Prior evidence',openQuestions:'Gap'}]});assert.ok(f.prompts.some(x=>x.includes('PREVIOUS_LAYER_ONLY')));
  f=await fixture({fail:true,twoHypotheses:true,privateBreak:true,expanded:true});assert.ok(f.calls<=14);assert.ok(f.result.hypotheses_tested.some(x=>x.verdict==='untested'));
- console.log('PASS: 13 schema-validated synthetic workflow scenarios');
+ f=await fixture({width:7,ceiling:8});assert.equal(f.result.stats.rounds_run,0);
+ for(const maxRounds of [-1,0,4,1.5,'2',null]) {
+  await assert.rejects(()=>fixture({maxRounds}),e=>/maxRounds must be an integer from 1 to 3/.test(e.message)&&e.calls===0);
+ }
+ for(const maxRounds of [1,2,3]) {
+  f=await fixture({fail:true,expanded:true,maxRounds});assert.equal(f.result.stats.rounds_run,maxRounds);
+ }
+ console.log('PASS: 23 schema-validated synthetic workflow scenarios');
 })().catch(e=>{console.error(e);process.exitCode=1});
