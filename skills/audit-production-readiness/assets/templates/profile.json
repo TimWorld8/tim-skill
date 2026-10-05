@@ -1,0 +1,18 @@
+{
+  "release_id": "",
+  "fingerprint": "",
+  "source_revision": "",
+  "artifact_digest": "",
+  "config_fingerprint": "",
+  "schema_data_versions": [],
+  "model_prompt_retrieval_versions": [],
+  "audience": "",
+  "intended_use": "",
+  "prohibited_use": [],
+  "impact": "",
+  "accountable_owner": "",
+  "assessment_boundary": {"authorized_targets": [], "allowed_actions": [], "excluded_actions": [], "test_data": "", "environment": ""},
+  "module_decisions": {},
+  "thresholds": [],
+  "scope_reopening_triggers": []
+}

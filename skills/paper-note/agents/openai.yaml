@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Note"
+  short_description: "Create faithful Thai handwritten notebook images"
+  default_prompt: "Create a Thai handwritten paper-note image from the user's supplied content, preserving exact wording, numbers, formulas, algorithms, branches, questions, and caveats."
