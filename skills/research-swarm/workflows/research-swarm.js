@@ -54,7 +54,20 @@ const layer = input.layer || 1;
 const priorLayers = input.priorLayers || []; // [{layer, question, verdictSummary, openQuestions}]
 
 // Agent ceiling for the whole run. Fan-out + synthesis + tests + one Next questions agent must fit.
-const CEILING = input.ceiling || 14;
+const CEILING = input.ceiling === undefined ? 14 : input.ceiling;
+if (!Number.isInteger(CEILING) || CEILING < 1)
+  throw new Error("ceiling must be a positive integer");
+if (CEILING < width + 1)
+  throw new Error("agent ceiling cannot fit requested lenses and synthesis");
+let agentsSpent = 0;
+async function dispatch(prompt, options) {
+  if (agentsSpent >= CEILING) {
+    log("Agent ceiling reached; dispatch skipped");
+    return null;
+  }
+  agentsSpent++;
+  return agent(prompt, options);
+}
 
 // ---------------------------------------------------------------- schemas
 
@@ -242,7 +255,7 @@ const NEXT_QUESTIONS = {
     },
     questions: {
       type: "array",
-      minItems: 2,
+      minItems: 0,
       maxItems: 5,
       items: {
         type: "object",
@@ -347,7 +360,7 @@ const LENSES = [
 // ---------------------------------------------------------------- prompt builders
 
 function constraintBlock() {
-  if (!closed.length && !barred.length && !known.length && !contextText)
+  if (!closed.length && !barred.length && !known.length && !contextText && !priorLayers.length)
     return "";
   const parts = ["\n\n=== PROJECT CONSTRAINTS — read before searching ==="];
   if (known.length) {
@@ -416,7 +429,7 @@ Return the structured object. Your text output IS the return value — no preamb
 // ---------------------------------------------------------------- phase 1: fan-out
 
 phase("Fan-out");
-log(`Question: ${question}`);
+log("Research question accepted");
 log(
   `Dispatching ${width} lenses in parallel${closed.length ? ` · CLOSED ${closed.length} routes` : ""}${barred.length ? ` · BARRED ${barred.length} items` : ""}`,
 );
@@ -429,7 +442,7 @@ const lenses =
 const raw = await parallel(
   lenses.map(
     (lens) => () =>
-      agent(lensPrompt(lens), {
+      dispatch(lensPrompt(lens), {
         label: `lens:${lens.key}`,
         phase: "Fan-out",
         schema: FINDINGS,
@@ -505,11 +518,12 @@ for (let i = allFindings.length - 1; i >= 0; i--) {
       lens: f.lens,
       claim: f.claim,
       closed_route: hit,
+      source_url: f.source_url,
       evidence: f.revives_closed_route,
     });
     f.reopens = hit;
   } else {
-    rejected.push({ lens: f.lens, claim: f.claim, closed_route: hit });
+    rejected.push({ lens: f.lens, claim: f.claim, closed_route: hit, source_url: f.source_url });
     allFindings.splice(i, 1);
   }
 }
@@ -527,27 +541,19 @@ const anomalies = allFindings
   .filter((f) => f.anomaly && f.anomaly.trim().toLowerCase() !== "none")
   .map((f) => ({ lens: f.lens, claim: f.claim, anomaly: f.anomaly }));
 
-// Cheap textual dedup — same claim seen by two lenses is corroboration, not two facts.
-function normalise(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9ก-๙ ]/g, "")
-    .split(" ")
-    .filter((w) => w.length > 3)
-    .sort()
-    .join(" ");
-}
-const seen = new Map();
-allFindings.forEach((f) => {
-  const k = normalise(f.claim).slice(0, 90);
-  if (seen.has(k)) seen.get(k).corroborated_by.push(f.lens);
-  else seen.set(k, { ...f, corroborated_by: [f.lens] });
+// Preserve every claim and source. Exact wording is only a candidate match;
+// token overlap or short prefixes must never merge negations or contradictions.
+const deduped = allFindings.map((f) => {
+  const matching = allFindings.filter((other) => other.claim === f.claim);
+  return {...f,
+    corroborated_by: [...new Set(matching.map((other) => other.lens))],
+    source_urls: [...new Set(matching.map((other) => other.source_url))]};
 });
-const deduped = Array.from(seen.values());
-const corroborated = deduped.filter((f) => f.corroborated_by.length > 1);
+const corroborated = deduped.filter((f) =>
+  f.corroborated_by.length > 1 && f.source_urls.length > 1);
 
 log(
-  `Collected: ${allFindings.length} claim → ${deduped.length} after deduplication · ${corroborated.length} cross-lens matches · ${anomalies.length} Next questions · ${stale.length} stale or superseded · ${downgraded} confidence downgrades`,
+  `Collected: ${allFindings.length} claim → ${deduped.length} preserved records · ${corroborated.length} cross-lens matches · ${anomalies.length} Next questions · ${stale.length} stale or superseded · ${downgraded} confidence downgrades`,
 );
 
 const noAnomalyLenses = lensResults
@@ -570,7 +576,7 @@ function synthesisPrompt(prior) {
 QUESTION: ${question}
 ${CONSTRAINTS}
 
-FINDINGS (deduplicated; corroborated_by lists which lenses saw the same thing):
+FINDINGS (all claims and sources preserved; corroborated_by marks exact-text candidate matches, not proven source independence):
 ${JSON.stringify(deduped, null, 1)}
 
 ANOMALIES THE LENSES FLAGGED:
@@ -581,6 +587,7 @@ ${JSON.stringify(
   stale.map((f) => ({
     claim: f.claim,
     date: f.recency_check.source_date,
+    source_url: f.source_url,
     successor: f.recency_check.successor,
   })),
   null,
@@ -603,7 +610,7 @@ RULES
 Return the structured object.`;
 }
 
-let synth = await agent(synthesisPrompt(""), {
+let synth = await dispatch(synthesisPrompt(""), {
   label: "synthesise",
   phase: "Synthesis",
   schema: SYNTHESIS,
@@ -664,8 +671,8 @@ const REFUTE_ANGLES = [
 
 async function testOne(h) {
   if (h.testable_in_code) {
-    const v = await agent(experimentPrompt(h), {
-      label: `experiment:${h.statement.slice(0, 32)}`,
+    const v = await dispatch(experimentPrompt(h), {
+      label: "experiment:test",
       phase: "Test",
       schema: VERDICT,
     });
@@ -674,8 +681,8 @@ async function testOne(h) {
   const votes = await parallel(
     REFUTE_ANGLES.map(
       (angle) => () =>
-        agent(refutePrompt(h, angle), {
-          label: `refute:${h.statement.slice(0, 26)}`,
+        dispatch(refutePrompt(h, angle), {
+          label: "refute:test",
           phase: "Test",
           schema: VERDICT,
         }),
@@ -719,7 +726,6 @@ let hypotheses = synth.hypotheses;
 // Agent budget: lenses + synthesis are already spent, one seat is reserved for the
 // Next questions phase. A code hypothesis costs 1 agent, a desk hypothesis costs 2 (two refuters).
 // Whatever does not fit is reported as untested — never silently dropped.
-let agentsSpent = lenses.length + 1;
 function fitToBudget(hs) {
   const room = CEILING - agentsSpent - 1; // -1 reserves the Next questions agent
   const kept = [];
@@ -734,7 +740,6 @@ function fitToBudget(hs) {
       dropped.push(h);
     }
   });
-  agentsSpent += cost;
   return { kept, dropped };
 }
 
@@ -764,16 +769,18 @@ while (round <= maxRounds) {
     `Round ${round}: testing ${hypotheses.length} hypotheses (${hypotheses.filter((h) => h.testable_in_code).length} code experiments)`,
   );
 
-  const results = (await parallel(hypotheses.map((h) => () => testOne(h))))
-    .filter(Boolean)
-    .map(settle);
+  const rawTests = await parallel(hypotheses.map((h) => () => testOne(h)));
+  const results = hypotheses.map((h, index) => settle(rawTests[index] || {
+    hypothesis: h, mode: h.testable_in_code ? "experiment" : "refutation",
+    verdicts: [],
+  }));
   results.forEach((r) => tested.push({ ...r, round }));
 
   results.forEach((r) => {
     const mark =
       r.verdict === "pass" ? "✅" : r.verdict === "fail" ? "❌" : "⬜";
     log(
-      `  ${mark} ${r.verdict.toUpperCase()} — ${r.hypothesis.statement.slice(0, 90)}`,
+      `  ${mark} ${r.verdict.toUpperCase()} — test result`,
     );
   });
 
@@ -798,7 +805,7 @@ while (round <= maxRounds) {
     );
     failures.forEach((f) =>
       tested.push({
-        hypothesis: { statement: f.detail.revision },
+        hypothesis: { ...f.hypothesis, statement: f.detail.revision },
         verdict: "untested",
         reason: "budget exhausted before this round",
         round: round + 1,
@@ -816,15 +823,14 @@ while (round <= maxRounds) {
     brokeOn.length > 1 && brokeOn.every((b) => b === brokeOn[0]);
   if (sameBreak) {
     log(
-      `⚠ Shared assumption: ${failures.length} hypotheses failed at ${brokeOn[0]}; reconsidering synthesis`,
+      `⚠ Shared assumption: ${failures.length} hypotheses share a failure; reconsidering synthesis`,
     );
     if (agentsSpent + 2 > CEILING) {
       log("Agent ceiling leaves no slot for re-synthesis and next questions");
-      failures.forEach((f) => tested.push({hypothesis: {statement: f.detail.revision}, verdict: "untested", reason: "agent ceiling before re-synthesis", round: round + 1, verdicts: []}));
+      failures.forEach((f) => tested.push({hypothesis: {...f.hypothesis, statement: f.detail.revision}, verdict: "untested", reason: "agent ceiling before re-synthesis", round: round + 1, verdicts: []}));
       break;
     }
-    agentsSpent++;
-    const re = await agent(
+    const re = await dispatch(
       synthesisPrompt(
         `\nPREVIOUS ROUND FAILED. ${failures.length} hypotheses all broke at the same point: "${failures[0].detail.broke_where}". Evidence: ${failures.map((f) => f.reason).join(" | ")}\n\nThe shared assumption underneath them is suspect. Do NOT patch those hypotheses — re-read the findings and build a different shape from the evidence.`,
       ),
@@ -915,7 +921,7 @@ RULES FOR YOUR QUESTIONS
 
 Write the questions in English. Return the structured object.`;
 
-const eh = await agent(ehPrompt, {
+const eh = await dispatch(ehPrompt, {
   label: "Next questions:next-questions",
   phase: "Next questions",
   schema: NEXT_QUESTIONS,
@@ -923,13 +929,11 @@ const eh = await agent(ehPrompt, {
 
 if (eh) {
   log(`Next questions: ${eh.questions.length} follow-up questions`);
-  eh.questions
-    .filter((q) => q.worth_a_round)
-    .forEach((q) => log(`  [${q.depth}] ${q.question.slice(0, 100)}`));
+  log(`Decision-relevant follow-up count: ${eh.questions.filter((q) => q.worth_a_round).length}`);
   log(
     eh.recommended_next.question === "stop"
       ? "  → Recommendation: stop; no further layer needed"
-      : `  → Next layer should ask: ${eh.recommended_next.question.slice(0, 110)}`,
+      : "A decision-relevant next layer was identified",
   );
 } else {
   log("⚠ Next-question phase failed; no follow-up questions available");
@@ -944,12 +948,14 @@ return {
   stale: stale.map((f) => ({
     claim: f.claim,
     date: f.recency_check.source_date,
+    source_url: f.source_url,
     successor: f.recency_check.successor,
   })),
   corroborated: corroborated.map((f) => ({
     claim: f.claim,
     lenses: f.corroborated_by,
     url: f.source_url,
+    source_urls: f.source_urls,
   })),
   findings: deduped,
   hypotheses_tested: tested.map((t) => ({
@@ -958,6 +964,7 @@ return {
     round: t.round,
     mode: t.mode || "n/a",
     pass_criterion: t.hypothesis.pass_criterion || "n/a",
+    fail_criterion: t.hypothesis.fail_criterion || "n/a",
     evidence: t.reason,
     broke_where: t.detail ? t.detail.broke_where : "n/a",
     revision: t.detail ? t.detail.revision : "n/a",
@@ -969,6 +976,8 @@ return {
   next_questions: eh ? eh.questions : [],
   recommended_next: eh ? eh.recommended_next : null,
   stats: {
+    agents_dispatched: agentsSpent,
+    next_questions_completed: Boolean(eh),
     lenses_run: lensResults.length,
     lenses_requested: lenses.length,
     claims_raw: allFindings.length,

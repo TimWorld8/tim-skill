@@ -1,5 +1,7 @@
 # Assessment and Gating
 
+Local helpers require Python 3.9 or newer. Evidence review must occur at or after observation. Control review must occur at or after the supporting evidence observation and review; waiver review must likewise follow mitigation evidence. Malformed module decision records fail safely and cannot establish applicability or a release pass.
+
 ## Contents
 - Record model
 - Verification and evidence

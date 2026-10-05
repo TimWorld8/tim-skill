@@ -7,7 +7,7 @@
 
 ## Source snapshot
 
-Translate the user's completed Thai production-readiness standard into an operational English skill. The original is preserved in the user's Library as `thai-vibe-release-standard-v1.zip`; this skill does not replace or modify it. The original catalog and ledger identify their snapshot as 2026-10-05 Asia/Bangkok. That is the source author's reference date, not a claim that this skill independently researched or verified every live source at invocation time.
+This operational English skill is translated from a completed production-readiness standard. The source catalog and ledger identify their snapshot as 2026-10-05 Asia/Bangkok. This is the source reference date, not a claim that every live source was independently verified at invocation time.
 
 Retain 221 controls, 107 source records, and 96 unique source URLs. The catalog metadata records the original ZIP SHA-256. The translated source ledger preserves identifiers, URLs, sections, versions/status, publication/access dates, normative type, and control backlinks. Source titles are immutable bibliographic data. Translating a note does not update a source's status.
 

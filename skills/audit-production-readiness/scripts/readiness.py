@@ -69,7 +69,10 @@ def evidence_errors(e, profile, now):
     if not reviewed(e, now):
         problems.append('missing or invalid evidence reviewer/time')
     try:
-        if aware(e.get('observed_at')) > now:
+        observed = aware(e.get('observed_at'))
+        if reviewed(e, now) and aware(e.get('reviewed_at')) < observed:
+            problems.append('evidence review precedes observation')
+        if observed > now:
             problems.append('evidence timestamp is in the future')
     except (ValueError, TypeError):
         problems.append('invalid evidence timestamp')
@@ -127,6 +130,12 @@ def waiver_errors(w, row, c, profile, evidence, now):
             e = evidence.get(eid)
             if not e or evidence_errors(e, profile, now) or e.get('result') != 'PASS':
                 problems.append('invalid waiver mitigation evidence: ' + str(eid))
+            if e:
+                try:
+                    if aware(w.get('reviewed_at')) < aware(e.get('observed_at')) or aware(w.get('reviewed_at')) < aware(e.get('reviewed_at')):
+                        problems.append('waiver review precedes mitigation observation/review')
+                except (ValueError, TypeError):
+                    problems.append('invalid waiver review chronology')
         if all(evidence.get(eid, {}).get('kind') == 'simulation' for eid in ids):
             problems.append('waiver mitigation has only synthetic simulation evidence')
     try:
@@ -162,7 +171,8 @@ def gate(assessment, now, controls):
         decision = decisions.get(module, {})
         if not isinstance(decision, dict) or type(decision.get('applicable')) is not bool or not nonempty(decision.get('rationale')) or not reviewed(decision, now):
             errors.append({'id': module, 'reason': 'unresolved or unreviewed module applicability'})
-    if decisions.get('CORE', {}).get('applicable') is not True:
+    core_decision = decisions.get('CORE')
+    if not isinstance(core_decision, dict) or core_decision.get('applicable') is not True:
         errors.append({'id': 'CORE', 'reason': 'CORE must be assessed'})
     for module in decisions:
         if module not in MODULES:
@@ -220,7 +230,7 @@ def gate(assessment, now, controls):
         if not nonempty(row.get('owner')) or not reviewed(row, now):
             reasons.append('missing owner or assessment review')
         module_decision = decisions.get(c['module'], {})
-        active = module_decision.get('applicable')
+        active = module_decision.get('applicable') if isinstance(module_decision, dict) else None
         if active is False and status != 'N/A':
             reasons.append('assessment conflicts with excluded module')
         if status == 'N/A':
@@ -257,6 +267,11 @@ def gate(assessment, now, controls):
                         reasons.append('missing evidence: ' + str(eid))
                     else:
                         reasons.extend(evidence_errors(e, p, now))
+                        try:
+                            if aware(row.get('reviewed_at')) < aware(e.get('observed_at')) or aware(row.get('reviewed_at')) < aware(e.get('reviewed_at')):
+                                reasons.append('assessment review precedes evidence observation/review')
+                        except (ValueError, TypeError):
+                            reasons.append('invalid review chronology')
                         if e.get('kind') != method or e.get('result') != 'PASS':
                             reasons.append('evidence method/result does not support this PASS')
         elif status == 'WAIVED':
@@ -280,9 +295,14 @@ def gate(assessment, now, controls):
 
 
 def initialize(profile, controls):
+    if not isinstance(profile, dict):
+        raise ValueError('profile must be an object')
+    decisions = profile.get('module_decisions', {})
+    if not isinstance(decisions, dict) or any(not isinstance(v, dict) for v in decisions.values()):
+        raise ValueError('every module decision must be an object')
     rows = []
     for cid, c in controls.items():
-        decision = profile.get('module_decisions', {}).get(c['module'], {})
+        decision = decisions.get(c['module'], {})
         excluded = decision.get('applicable') is False and nonempty(decision.get('rationale')) and nonempty(decision.get('reviewer')) and nonempty(decision.get('reviewed_at'))
         row = {'id': cid, 'release_id': profile.get('release_id', ''), 'fingerprint': profile.get('fingerprint', ''), 'status': 'N/A' if excluded else 'UNKNOWN', 'owner': c['owner'], 'reviewer': decision.get('reviewer', '') if excluded else '', 'reviewed_at': decision.get('reviewed_at', '') if excluded else '', 'summary': '', 'checks': []}
         if excluded:

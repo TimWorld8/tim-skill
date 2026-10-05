@@ -5,7 +5,9 @@ description: Assess production, release, delivery acceptance, or handover readin
 
 # Audit Production Readiness
 
-Produce a release-bound acceptance decision with traceable findings, explicit unknowns, and an evidence index. Apply the user's translated production-readiness standard, not a generic checklist or a security/compliance certification.
+Produce a release-bound acceptance decision with traceable findings, explicit unknowns, and an evidence index. Apply the translated production-readiness standard, not a generic checklist or a security/compliance certification.
+
+Requires Python 3.9 or newer for the local helpers.
 
 ## 1. Establish the candidate and assessment boundary
 

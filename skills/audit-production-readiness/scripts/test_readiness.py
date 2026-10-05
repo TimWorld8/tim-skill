@@ -58,6 +58,35 @@ class GateTests(unittest.TestCase):
     def test_catalog_source_parity(self):
         self.assertTrue(r.validate_catalog(self.data, self.controls)['valid'])
 
+    def test_review_cannot_precede_observation(self):
+        early = '2026-10-05T10:00:00+07:00'
+        self.a['evidence'][0]['reviewed_at'] = early
+        self.assertEqual(self.outcome()['decision'], 'NO-GO')
+        self.a = baseline(self.controls)
+        self.row(self.blocker)['reviewed_at'] = early
+        self.assertEqual(self.outcome()['decision'], 'NO-GO')
+        self.a = baseline(self.controls)
+        self.a['evidence'][0]['reviewed_at'] = '2026-10-05T11:30:00+07:00'
+        self.assertEqual(self.outcome()['decision'], 'NO-GO')
+
+    def test_waiver_review_cannot_precede_mitigation(self):
+        waiver(self.a, self.risk, reviewed_at='2026-10-05T10:00:00+07:00')
+        self.assertEqual(self.outcome()['decision'], 'NO-GO')
+
+    def test_malformed_module_decisions_fail_safely(self):
+        for module in ('CORE', 'API'):
+            for invalid in (None, [], 'invalid', 1):
+                a = baseline(self.controls)
+                a['profile']['module_decisions'][module] = invalid
+                with self.subTest(module=module, invalid=invalid):
+                    self.assertEqual(self.outcome(a)['decision'], 'NO-GO')
+                    with self.assertRaises(ValueError):
+                        r.initialize(a['profile'], self.controls)
+        p = profile()
+        p['module_decisions'] = []
+        with self.assertRaises(ValueError):
+            r.initialize(p, self.controls)
+
     def test_baseline_and_three_combined_profiles(self):
         self.assertEqual(self.outcome()['decision'], 'GO')
         for modules in [('CORE', 'WEB', 'API', 'DATA'), ('CORE', 'AI', 'API', 'DATA'), ('CORE', 'MOBILE', 'API', 'DATA')]:

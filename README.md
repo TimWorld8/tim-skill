@@ -4,7 +4,7 @@ English instructions for three reusable AI assistant skills. Each folder is self
 
 | Skill | Use it for | Main prerequisites |
 | --- | --- | --- |
-| [Audit Production Readiness](skills/audit-production-readiness/SKILL.md) | Evidence-based release and handover decisions using 221 stable controls across CORE, WEB, API, DATA, MOBILE, DESKTOP, AI, and IOT. | Python 3; authorized access to the candidate and its evidence; accountable human owner. |
+| [Audit Production Readiness](skills/audit-production-readiness/SKILL.md) | Evidence-based release and handover decisions using 221 stable controls across CORE, WEB, API, DATA, MOBILE, DESKTOP, AI, and IOT. | Python 3.9+; authorized access to the candidate and its evidence; accountable human owner. |
 | [Paper Note](skills/paper-note/SKILL.md) | Faithful Thai handwritten notebook images from supplied content. | An assistant with built-in image generation/editing and image inspection. |
 | [Research Swarm](skills/research-swarm/SKILL.md) | Complex comparative research with independent lenses, falsifiable hypotheses, testing, and retained failed routes. | Agent dispatch, browsing, structured outputs, scratch execution, and explicit budgets; see its [runtime contract](skills/research-swarm/references/runtime.md). |
 
