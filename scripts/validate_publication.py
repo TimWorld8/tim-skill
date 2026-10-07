@@ -7,7 +7,7 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = ('audit-production-readiness', 'paper-note', 'research-swarm')
+SKILLS = ('paper-note', 'research-swarm')
 errors = []
 files = []
 for p in sorted(ROOT.rglob('*')):
